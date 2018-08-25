@@ -1,0 +1,124 @@
+---
+title: "Practical Machine Learning - Project"
+author: "Wilfredo"
+date: "August 19, 2018"
+output: html_document
+---
+##Background
+A dataset logging the activity of several individuals doing 5 activities was analyzed. The original data comes from the reference below. The loggin was conducted by using an on-body sensing approach.
+
+The activities were:
+Class A: Correctly performing Unilateral Dumbbell Biceps Curl
+Class B: throwing the elbows to the front
+Class C: lifting the dumbbell only halfway
+Class D: lowering the dumbbell only halfway
+Class E: throwing the hips to the front
+
+Reference:
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6. 
+
+#Processing and model building
+
+```{r setup}
+set.seed(1234)
+setwd("~/Personal/Coursera/Practical Machine Learning/Course project")
+library(lattice)
+library(ggplot2)
+library("dplyr")
+library("caret")
+library("MLmetrics")
+
+#load data
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+
+#keep the 'y' variable
+y <- training$classe
+
+##Exploratory analysis
+plot(training[1:5])
+plot(training$gyros_belt_x)
+#variables with missing data
+na <- as.data.frame(sapply(training, function(x) sum(is.na(x)/length(training$X))))
+table(na)
+
+
+#variables with little variation
+var <- as.data.frame(sapply(training, function(x) length(unique(x))))
+rownames <- row.names(var)
+var$variable <- rownames
+colnames(var) <- c("unique","variable")
+sort(x = var$unique, decreasing = F)
+
+
+
+##Feature selection
+#Eliminate the columns with 97%
+training <- training[, colMeans(is.na(training)) <= .97] 
+#Eliminate names and time stamps
+training <- training[,-(1:7)]
+
+#Eliminate variables that have less than 100 unique values.
+#100 in the 19,622-observation dataset represents only a 0.5% variation 
+to.keep <- filter(var, unique > 100) 
+training <- select(training, one_of(to.keep$variable)) # select from the list of "to.keep"
+
+##Principal Component analysis
+#first change all variables to numeric
+training <- sapply(X = training, FUN = as.numeric)
+training <- as.data.frame(training)
+#Based on summary function, it looks like the variables are across 3 logs 10^1 - 10^3. A log10 transformation might be appropriate. We need to scale the variables
+pca <- prcomp(x = training, scale. = T)
+summary(pca)
+#looks like the first 16 PC explain at least > 1% of the variation
+#pca <- prcomp(x = training, scale. = T, rank. = 16)
+
+training$classe <- y #add the y variable back
+
+#Extract the variable names to match the testing dataset
+features <- colnames(training)
+
+#train model
+#Cross validation was done by dividing data in 10 portions and using a grid approach for tuning parameters
+
+control <- trainControl(method = "cv", number = 10, search = "grid")
+set.seed(1234)
+#Model was marked to avoid delaying the file creation
+#rf <- train(classe~., 
+#            data = training, 
+#            preProcess = c("scale", "pca"), 
+#            pcaComp = 16, 
+#            na.remove = T, 
+#            trControl = control, 
+#            method = "rf")
+
+#saveRDS(rf, "rf.rds") #save model
+
+my_model <- readRDS("rf.rds")
+
+my_model
+
+```
+
+The model has an accuracy of 0.972. Hence, the expected out of sample error is at least 0.02.
+
+#Test the model
+```{R}
+setwd("~/Personal/Coursera/Practical Machine Learning/Course project")
+my_model <- readRDS("rf.rds")
+testing$classe <- NULL
+test <- select(testing, one_of(features)) # select from the list of features from the model
+
+#make variables numeric
+test <- sapply(X = test, FUN = as.numeric)
+test <- as.data.frame(test)
+test1 <- test
+test1[is.na(test1)] <- 0
+
+#predict the testing dataset
+
+predicted <- predict(object = my_model, newdata = test1)
+
+predicted
+
+```
